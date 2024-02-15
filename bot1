@@ -1,0 +1,173 @@
+from datetime import datetime, timedelta
+import telebot
+from telebot import types
+
+API_TOKEN = 'number_my_token_for_telegram'
+bot = telebot.TeleBot(API_TOKEN)
+users_data = {}  # Словарь для хранения данных пользователей
+adminka = 0     #Переменная для выбора обработчика дат
+
+# Функция для создания Inline клавиатуры с мастерами
+def make_masters_keyboard():
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.add(types.InlineKeyboardButton("Мастер Вася", callback_data="Мастер Вася"))
+    keyboard.add(types.InlineKeyboardButton("Мастер Оля", callback_data="Мастер Оля"))
+    keyboard.add(types.InlineKeyboardButton("Мастер Лена", callback_data="Мастер Лена"))
+    keyboard.add(types.InlineKeyboardButton("Админка", callback_data="Админка"))
+    return keyboard
+
+# Функция для создания Inline клавиатуры с датами
+def make_dates_keyboard():
+    keyboard = types.InlineKeyboardMarkup()
+    for i in range(7):
+        date = (datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d")
+        keyboard.add(types.InlineKeyboardButton(date, callback_data=date))
+    return keyboard
+
+
+# Функция для создания Inline клавиатуры со временем
+def make_times_keyboard():
+    keyboard = types.InlineKeyboardMarkup()
+    times = ["09:00", "10:00", "11:00", "12:00", "13:00"]
+    for time in times:
+        keyboard.add(types.InlineKeyboardButton(time, callback_data=time))
+    return keyboard
+
+
+# Функция для создания Inline клавиатуры с мастерами в Админке
+def make_adm_masters_keyboard():
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.add(types.InlineKeyboardButton("Мастер Вася", callback_data=">Мастер Вася"))
+    keyboard.add(types.InlineKeyboardButton("Мастер Оля", callback_data=">Мастер Оля"))
+    keyboard.add(types.InlineKeyboardButton("Мастер Лена", callback_data=">Мастер Лена"))
+    return keyboard
+
+
+# Функция для создания Inline клавиатуры с датами в Админке
+def make_adm_dates_keyboard():
+    keyboard = types.InlineKeyboardMarkup()
+    for i in range(7):
+        date = (datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d")
+        callback_data = f"adm_{date}"  # Добавляем префикс 'adm_'
+        keyboard.add(types.InlineKeyboardButton(date, callback_data=callback_data))
+    return keyboard
+
+
+# Обработчик событий от кнопок со временем
+@bot.callback_query_handler(func=lambda call: call.data in ["09:00", "10:00", "11:00", "12:00", "13:00"])
+def callback_time(call):
+    user_id = call.message.chat.id
+    users_data[user_id]['time'] = call.data
+    master_date = users_data[user_id]['master'] + '_' + users_data[user_id]['date']
+
+    if master_date not in users_data:
+        users_data[master_date] = {}
+
+    if users_data[user_id]['time'] not in users_data[master_date]:
+        # Записать пользователя на это время
+        users_data[master_date][users_data[user_id]['time']] = users_data[user_id]['name'] + " " + users_data[user_id][
+            'phone']
+        bot.answer_callback_query(call.id,
+                                  "Мы Вас записали на " + users_data[user_id]['date'] + " на " + users_data[user_id][
+                                      'time'])
+        bot.send_message(call.message.chat.id,
+                         "Вы записались на " + users_data[user_id]['date'] + " на " + users_data[user_id]['time'])
+        send_welcome(call.message)
+    else:
+        # Указанное время уже занято
+        bot.answer_callback_query(call.id, "Данное время занято. Выберите, пожалуйста, другое.")
+        bot.send_message(call.message.chat.id, "Данное время занято. Выберите пожалуйста другое")
+        bot.send_message(call.message.chat.id, "На какое время хотите записаться?", reply_markup=make_times_keyboard())
+
+# Обработчик событий от кнопок с датами
+@bot.callback_query_handler(func=lambda call: call.data.startswith('2024-'))
+def callback_date(call):
+    #bot.send_message(call.message.chat.id, f"Режим записи с callback_data: {call.data}")
+    user_id = call.message.chat.id
+    users_data[user_id]['date'] = call.data
+    bot.send_message(call.message.chat.id, "На какое время хотите записаться?", reply_markup=make_times_keyboard())
+
+# Обработчик событий от кнопок с мастерами
+@bot.callback_query_handler(func=lambda call: call.data.startswith('Мастер'))
+def callback_master(call):
+    user_id = call.message.chat.id
+    users_data[user_id]['master'] = call.data
+    bot.send_message(call.message.chat.id, text="Укажите ваш телефон для связи")
+    bot.register_next_step_handler(call.message, process_phone_step)
+
+
+def process_phone_step(message):
+    try:
+        user_id = message.chat.id
+        users_data[user_id]['phone'] = message.text
+        bot.send_message(message.chat.id, "Как ваше имя, чтобы мы вас записали?")
+        bot.register_next_step_handler(message, process_name_step)
+    except Exception:
+        bot.reply_to(message, 'Ой! Что-то пошло не так.')
+
+
+def process_name_step(message):
+    try:
+        user_id = message.chat.id
+        users_data[user_id]['name'] = message.text
+        bot.send_message(message.chat.id, "На какую дату Вы хотите записаться?", reply_markup=make_dates_keyboard())
+    except Exception:
+        bot.reply_to(message, 'Ой! Что-то пошло не так.')
+
+
+# Добавим обработчик для кнопки "Админка" (предполагается, что она есть в каком-то из сообщений)
+@bot.callback_query_handler(func=lambda call: call.data == "Админка")
+def callback_button_four(call):
+    #adminka = 1
+    bot.send_message(call.message.chat.id, "Выберите мастера", reply_markup=make_adm_masters_keyboard())
+
+
+# Обработчик событий от кнопок с датами для админки
+@bot.callback_query_handler(func=lambda call: call.data.startswith('adm_'))
+def callback_adm_date(call):
+
+    users_data[user_id]['master?'] = call.data
+    #def callback_adm_date(call):
+    #bot.send_message(call.message.chat.id, f"Режим админки с callback_data: {call.data}")
+    # Убираем префикс 'adm_' из данных callback
+    #bot.send_message(call.message.chat.id, call.data)
+    selected_date = call.data[4:]
+    # Тут код для обработки выбора даты...
+    # Проверяем существование массива
+
+    user_id = call.message.chat.id
+    #bot.send_message(call.message.chat.id, users_data[user_id]['master'])
+    #bot.send_message(call.message.chat.id, users_data[user_id]['master'])
+    master_date_qwestion = users_data[user_id]['master?'] + '_' + selected_date
+
+    if master_date_qwestion in users_data:
+        # Выводим на экран содержимое данного массива
+        appointments = users_data[master_date_qwestion]
+        message_text = "Записи на выбранную дату:\n" + "\n".join(
+            f"{time}: {name}" for time, name in appointments.items())
+        bot.send_message(call.message.chat.id, message_text)
+    else:
+        # Сообщаем, что записей нет
+        bot.send_message(call.message.chat.id, "На данную дату записи нет")
+
+    # Возвращаем пользователя к первому сообщению
+    send_welcome(call.message)
+
+# Обработчик событий от кнопок с мастерами
+@bot.callback_query_handler(func=lambda call: call.data in [">Мастер Вася", ">Мастер Оля", ">Мастер Лена"])
+def callback_master(call):
+    # Тут код для обработки выбора мастера...
+    # После чего запрашиваем дату
+    bot.send_message(call.message.chat.id, "На какую дату хотите узнать записи?", reply_markup=make_adm_dates_keyboard())
+
+# Обработчик команды /start
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    user_id = message.chat.id
+    users_data[user_id] = {'master': None, 'date': None, 'time': None, 'phone': None, 'name': None}
+    bot.send_message(message.chat.id, "Приветствуем в нашем центре! К какому мастеру Вы хотите записаться?",
+                     reply_markup=make_masters_keyboard())
+
+
+# Запустить бота
+bot.polling(none_stop=True)
